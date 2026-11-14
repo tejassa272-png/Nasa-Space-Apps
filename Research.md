@@ -49,6 +49,16 @@ https://registry.opendata.aws/nasa-osdr/
 https://science.nasa.gov/biological-physical/data/osdr/
 ------------------------------------------------------------------------------------------------------------------------------------------
                                                       CLAUDE INSIGHTFUL WORK
+
+
+
+
+
+
+
+
+
+                                                      hey hi hlo guys
 -------------------------------------------------------------------------------------------------------------------------------------------
 <img width="1166" height="602" alt="WhatsApp Image 2026-11-13 at 11 47 33 PM" src="https://github.com/user-attachments/assets/47210d9c-9b63-4065-8e54-4a04d0230109" />
 ![Uploading WhatsApp Image 2026-11-13 at 11.47.33 PM (1).jpeg…]()
