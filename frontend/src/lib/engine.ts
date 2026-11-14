@@ -14,7 +14,7 @@ export const STATUS_COLOR: Record<Status, string> = {
 
 export const clamp = (v: number) => Math.min(1, Math.max(0, v))
 const norm = (v: number, min: number, max: number) => clamp((v - min) / (max - min))
-const toStatus = (r: number): Status => (r < 0.35 ? 'nominal' : r < 0.65 ? 'caution' : 'critical')
+export const toStatus = (r: number): Status => (r < 0.35 ? 'nominal' : r < 0.65 ? 'caution' : 'critical')
 
 type Term = [string, number]
 
@@ -113,11 +113,9 @@ export const PROTOCOLS: Record<SystemId, { title: string; steps: string[] }> = {
 
 export function getKit(id: SystemId, days: number) {
     const potencyLoss = Math.min(40, Math.round(days / 60))
-    if (id === 'bones') {
-        return { drug: 'Alendronate 10 mg', stock: 14, location: 'Medical Locker B, Drawer 2', warning: `Potency reduced ~${potencyLoss}% due to flight duration.` }
-    }
-    if (id === 'immune') {
-        return { drug: 'Vitamin D 2,000 IU', stock: 60, location: 'Medical Locker A, Drawer 1', warning: `Potency reduced ~${potencyLoss}% due to flight duration.` }
-    }
+    const warning = `Potency reduced ~${potencyLoss}% due to flight duration.`
+    if (id === 'bones') return { drug: 'Alendronate 10 mg', stock: 14, location: 'Medical Locker B, Drawer 2', drawer: 'B2', warning }
+    if (id === 'immune') return { drug: 'Anti-inflammatory 200 mg', stock: 40, location: 'Medical Locker B, Drawer 4', drawer: 'B4', warning }
+    if (id === 'lungs') return { drug: 'Supplemental oxygen kit', stock: 3, location: 'Medical Locker A, Drawer 3', drawer: 'A3', warning }
     return null
 }
