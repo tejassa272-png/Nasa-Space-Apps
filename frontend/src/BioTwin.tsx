@@ -11,52 +11,6 @@ const MODEL_HEIGHT = 3.2;
 const FEET_Y = -1.6;
 const CAMERA_ANGLE_LIMIT = Math.PI / 4;
 const CAMERA = { position: [0, 0.1, 5.25] as [number, number, number], fov: 46 };
-// ---- Tuning knobs ----
-const MODEL_URL = '/spacesuit.glb'; // Updated to the new model name
-const MODEL_HEIGHT = 3.2;      
-const FEET_Y = -1.57;          
-const ROTATION_Y = 0;          
-const ANCHOR_Z = 0.4;          // Pushed out slightly for the bulkier suit
-const DOT_SPREAD = 1.25;       
-const HOTSPOT_Y = 0;           
-const CAMERA_Z = 5.5;          // Pulled camera back slightly
-// ---------------------------------------------------------------------
-
-type Vec3 = [number, number, number];
-
-// ADJUSTED: New hotspot anchors tailored for the spacesuit.glb proportions
-const HOTSPOTS: Record<SystemId, { anchor: [number, number]; dotY: number; side: 'left' | 'right' }> = {
-  brain:  { anchor: [0.00, 0.90], dotY: 0.93, side: 'right' },
-  eyes:   { anchor: [-0.05, 0.85], dotY: 0.93, side: 'left' },
-  lungs:  { anchor: [-0.15, 0.70], dotY: 0.70, side: 'left' },
-  heart:  { anchor: [0.15, 0.65], dotY: 0.70, side: 'right' },
-  immune: { anchor: [-0.15, 0.50], dotY: 0.47, side: 'left' },
-  bones:  { anchor: [0.15, 0.25], dotY: 0.27, side: 'right' },
-};
-
-function measureRendered(root: THREE.Object3D): THREE.Box3 {
-  root.updateMatrixWorld(true);
-  const box = new THREE.Box3();
-  const v = new THREE.Vector3();
-  root.traverse((o) => {
-    const mesh = o as THREE.SkinnedMesh;
-    if (!(mesh as any).isMesh) return;
-    const pos = mesh.geometry.attributes.position;
-    if (!pos) return;
-    const skinned = (mesh as any).isSkinnedMesh === true;
-    if (skinned) mesh.skeleton.update();
-    for (let i = 0; i < pos.count; i++) {
-      v.fromBufferAttribute(pos, i);
-      if (skinned) {
-        if (typeof (mesh as any).applyBoneTransform === 'function') (mesh as any).applyBoneTransform(i, v);
-        else if (typeof (mesh as any).boneTransform === 'function') (mesh as any).boneTransform(i, v);
-      }
-      v.applyMatrix4(mesh.matrixWorld);
-      box.expandByPoint(v);
-    }
-  });
-  return box;
-}
 
 const HOTSPOTS = {
   brain: { anchor: [0.00, 0.95], height: 0.91, side: 1, label: 'Cognition', icon: Brain },
@@ -126,47 +80,6 @@ function CameraControls({ command }: { command: CameraCommand | null }) {
 function Marker({ system, selected, onSelect }: { system: SystemState; selected: boolean; onSelect: () => void }) {
   const color = STATUS_COLOR[system.status];
   const marker = HOTSPOTS[system.id];
-function Figure({ systems, selected, onSelect, tint }: FigureProps) {
-  const { scene } = useGLTF(MODEL_URL);
-  const sway = useRef<THREE.Group>(null);
-
-  // DELETED: The transparent hologram material override. 
-  // We now render the GLTF with its native textures.
-
-  const { model, fit } = useMemo(() => {
-    const cloned = SkeletonUtils.clone(scene);
-    
-    // Add an emissive tint to the whole model based on status, but keep textures
-    const baseColor = tint === 'nominal' ? null : STATUS_COLOR[tint];
-    
-    cloned.traverse((child) => {
-      if ((child as THREE.Mesh).isMesh) {
-         child.frustumCulled = false;
-         const mesh = child as THREE.Mesh;
-         
-         // If there is an alert, give the suit a slight glowing tint of that color
-         if (baseColor && mesh.material) {
-             const mat = (mesh.material as THREE.MeshStandardMaterial).clone();
-             mat.emissive = new THREE.Color(baseColor);
-             mat.emissiveIntensity = 0.3;
-             mesh.material = mat;
-         }
-      }
-    });
-    
-    const box = measureRendered(cloned);
-    const size = box.getSize(new THREE.Vector3());
-    const center = box.getCenter(new THREE.Vector3());
-    return {
-      model: cloned,
-      fit: { scale: MODEL_HEIGHT / (size.y || 1), cx: center.x, cz: center.z, minY: box.min.y },
-    };
-  }, [scene, tint]);
-
-  // Gentle sway
-  useFrame(({ clock }) => {
-    if (sway.current) sway.current.rotation.y = ROTATION_Y + Math.sin(clock.elapsedTime * 0.4) * 0.12;
-  });
 
   return (
     <button
@@ -349,41 +262,3 @@ export default function BioTwin({ systems, selected, onSelect, tint }: Props) {
     </div>
   );
 }
-    <Canvas camera={{ position: [0, 0.1, CAMERA_Z], fov: 45 }} onPointerMissed={() => onSelect(null)}>
-      
-      {/* UPDATED LIGHTING: Required for rendering opaque, textured models */}
-      <ambientLight intensity={1.5} />
-      <directionalLight position={[5, 5, 5]} intensity={2} />
-      <spotLight position={[-5, 5, 5]} angle={0.5} penumbra={1} intensity={1} color="#38bdf8" />
-      <spotLight position={[0, -5, 5]} angle={0.5} penumbra={1} intensity={1} color={tint === 'nominal' ? '#ffffff' : STATUS_COLOR[tint]} />
-
-      {/* Ground ring under the feet */}
-      <mesh position={[0, FEET_Y + 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[0.85, 0.95, 64]} />
-        <meshBasicMaterial color="#38bdf8" transparent opacity={0.45} />
-      </mesh>
-
-      <Suspense
-        fallback={
-          <Html center>
-            <div className="bt-loading">LOADING 3D BIO-TWIN...</div>
-          </Html>
-        }
-      >
-        <Html position={[0, -5, 0]}><span /></Html>
-        <Figure systems={systems} selected={selected} onSelect={onSelect} tint={tint} />
-      </Suspense>
-
-      <OrbitControls
-        enableZoom={false}
-        enablePan={false}
-        minAzimuthAngle={-Math.PI / 4}
-        maxAzimuthAngle={Math.PI / 4}
-        minPolarAngle={1.1}
-        maxPolarAngle={1.8}
-      />
-    </Canvas>
-  );
-}
-
-useGLTF.preload(MODEL_URL);

@@ -1,26 +1,20 @@
-/* ---- AstroTwin live-video theme (loads after index.css) ---- */
-html {
-    background: #02040a;
-}
-
-:root {
-    --bg-deep-space: transparent;
-    --panel-bg: rgba(8, 16, 32, 0.55);
-}
-
-body,
 #root {
-    background: transparent !important;
+    isolation: isolate;
 }
 
-.panel,
-.demo-menu {
-    background-color: rgba(8, 16, 32, 0.55) !important;
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
+.mission-background {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    background: #0b111a;
+    pointer-events: none;
 }
 
-.master-nav {
-    background: rgba(2, 6, 23, 0.55) !important;
-    backdrop-filter: blur(8px);
+.mission-background:has(video) ~ .app-shell {
+    --panel-bg: rgba(8, 16, 32, 0.86);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .mission-background video { visibility: hidden; }
 }

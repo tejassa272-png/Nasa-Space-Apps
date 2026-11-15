@@ -36,12 +36,12 @@ export default function BackgroundVideo() {
 
     return (
         <>
-            <div style={{ position: 'fixed', inset: 0, zIndex: -1, overflow: 'hidden', background: '#02040a' }}>
+            <div className="mission-background" aria-hidden="true">
                 {current && (
                     <video
                         key={current.file}
                         ref={videoRef}
-                        src={`/backgrounds/${current.file}`}
+                        src={`${import.meta.env.BASE_URL}backgrounds/${current.file}`}
                         autoPlay
                         muted
                         loop
@@ -68,8 +68,9 @@ export default function BackgroundVideo() {
                         color: '#94a3b8',
                     }}
                 >
-                    <span style={{ marginRight: 6 }}>BACKGROUND</span>
+                    <label htmlFor="mission-background" style={{ marginRight: 6 }}>BACKGROUND</label>
                     <select
+                        id="mission-background"
                         value={index}
                         onChange={(e) => setIndex(Number(e.target.value))}
                         style={{ background: '#020617', color: '#e0f2fe', border: '1px solid rgba(56,189,248,0.3)', borderRadius: 4 }}

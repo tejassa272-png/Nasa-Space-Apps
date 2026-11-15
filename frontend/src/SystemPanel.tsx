@@ -16,8 +16,10 @@ interface Props {
   unlocked: string[];
   onDispense: (item: TriageItem, itemKey: string) => void;
   inventoryAvailable?: boolean;
+  canRecordDispense: boolean;
   dispensePending?: boolean;
   dispenseError?: string | null;
+  unconfirmedDispenses: string[];
 }
 
 export default function SystemPanel({
@@ -26,8 +28,10 @@ export default function SystemPanel({
   unlocked,
   onDispense,
   inventoryAvailable = true,
+  canRecordDispense,
   dispensePending = false,
   dispenseError,
+  unconfirmedDispenses,
 }: Props) {
   const guide = GUIDE[system.id];
   const protocol = PROTOCOLS[system.id];
@@ -35,7 +39,9 @@ export default function SystemPanel({
   const item = fragment ? inventory.find((candidate) => candidate.name.toLowerCase().includes(fragment.toLowerCase())) : undefined;
   const drawer = item ? drawerOf(item.location) : null;
   const recorded = item ? unlocked.includes(item.name) : false;
+  const canRetry = item ? unconfirmedDispenses.includes(item.name) : false;
   const blocked = item ? item.qty <= 0 || item.status === 'out' || item.status === 'unusable' : false;
+  const canSubmit = inventoryAvailable && (canRetry || (canRecordDispense && !blocked));
   const elevated = system.status !== 'nominal';
   const risk = Math.round(system.risk * 100);
 
@@ -84,7 +90,7 @@ export default function SystemPanel({
         </details>
       )}
 
-      {elevated && fragment && (
+      {fragment && (elevated || canRetry) && (
         <section className="sp-kit">
           <h4><Package size={16} aria-hidden="true" /> Medical kit check</h4>
           {item ? (
@@ -101,19 +107,19 @@ export default function SystemPanel({
               )}
               {item.warning && <p className="sp-warning"><AlertTriangle size={14} aria-hidden="true" /> {item.warning}</p>}
               {dispenseError && <p className="sp-error" role="alert">{dispenseError}</p>}
-              {!inventoryAvailable && !recorded && <p className="sp-kit-help">Inventory updates are temporarily unavailable.</p>}
+              {(!inventoryAvailable || (!canRecordDispense && !canRetry)) && !recorded && <p className="sp-kit-help">Dispense recording is unavailable for this view.</p>}
               <button
                 className="sp-dispense"
                 type="button"
-                disabled={recorded || blocked || !inventoryAvailable || dispensePending}
+                disabled={recorded || !canSubmit || dispensePending}
                 onClick={() => onDispense(item, item.name)}
               >
                 {recorded ? (
                   <><Check size={15} aria-hidden="true" /> Dispense recorded</>
                 ) : (
                   <>
-                    {dispensePending ? 'Recording…' : blocked ? 'Supply unavailable' : 'Record one unit dispensed'}
-                    {!dispensePending && !blocked && <ArrowUpRight size={14} aria-hidden="true" />}
+                    {dispensePending ? 'Recording…' : canRetry ? 'Retry dispense record' : blocked ? 'Supply unavailable' : 'Record one unit dispensed'}
+                    {!dispensePending && canSubmit && <ArrowUpRight size={14} aria-hidden="true" />}
                   </>
                 )}
               </button>

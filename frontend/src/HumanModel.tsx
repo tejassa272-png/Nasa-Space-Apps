@@ -6,7 +6,8 @@ import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 const MODEL_URL = `${import.meta.env.BASE_URL}astronaut.glb`;
 
 export default function HumanModel({ height }: { height: number }) {
-  const { scene } = useGLTF(MODEL_URL);
+  // This model uses uncompressed geometry and needs neither decoder.
+  const { scene } = useGLTF(MODEL_URL, false, false);
   const model = useMemo(() => {
     const object = clone(scene);
     object.updateMatrixWorld(true);

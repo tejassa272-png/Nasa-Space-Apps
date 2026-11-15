@@ -39,6 +39,12 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-deepspacepassword}
       DATABASE_URL: ${DATABASE_URL:-}
       WEB_CONCURRENCY: ${ASTROTWIN_WORKERS:-2}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3).close()"]
+      interval: 5s
+      timeout: 4s
+      start_period: 15s
+      retries: 5
     ports:
       - "127.0.0.1:${ASTROTWIN_API_PORT:-8000}:8000"
     read_only: true
