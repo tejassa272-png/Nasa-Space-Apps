@@ -1,0 +1,26 @@
+/* ---- AstroTwin live-video theme (loads after index.css) ---- */
+html {
+    background: #02040a;
+}
+
+:root {
+    --bg-deep-space: transparent;
+    --panel-bg: rgba(8, 16, 32, 0.55);
+}
+
+body,
+#root {
+    background: transparent !important;
+}
+
+.panel,
+.demo-menu {
+    background-color: rgba(8, 16, 32, 0.55) !important;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+
+.master-nav {
+    background: rgba(2, 6, 23, 0.55) !important;
+    backdrop-filter: blur(8px);
+}
