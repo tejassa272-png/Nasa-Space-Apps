@@ -1,0 +1,77 @@
+.demo-menu {
+  width: 220px;
+  background-color: var(--panel-bg);
+  border-right: 1px solid var(--panel-border);
+  display: flex;
+  flex-direction: column;
+  padding: 1.5rem 1rem;
+  flex-shrink: 0;
+  overflow-y: auto;
+}
+
+.dm-header {
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--accent-blue);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 2rem;
+}
+
+.dm-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.dm-subtitle {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  margin-bottom: 0.25rem;
+}
+
+.dm-desc {
+  font-size: 0.7rem;
+  color: #64748b;
+  line-height: 1.4;
+  margin-bottom: 0.25rem;
+}
+
+.dm-btn {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--panel-border);
+  color: var(--text-primary);
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s;
+}
+
+.dm-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: #475569;
+}
+
+.dm-btn.edge {
+  background: rgba(168, 85, 247, 0.08);
+  border-color: rgba(168, 85, 247, 0.3);
+}
+.dm-btn.edge:hover {
+  background: rgba(168, 85, 247, 0.15);
+}
+
+.dm-divider {
+  height: 1px;
+  background: var(--panel-border);
+  margin: 1.5rem 0;
+}

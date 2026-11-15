@@ -4,8 +4,11 @@ import './TriagePanel.css';
 export interface TriageItem {
   name: string;
   qty: number;
+  unit?: string;
   location: string;
   potency_loss_pct: number;
+  status?: 'ok' | 'low' | 'degraded' | 'unusable' | 'out';
+  warning?: string | null;
 }
 
 export interface TriageStep {
@@ -33,22 +36,36 @@ export interface Protocol {
   source: string;
   rationale: string;
   rationale_status: 'pending' | 'ready' | 'fallback';
+  flags?: string[];   // which readings tripped (hypoxia, tachycardia, hypertension, edema, bone_loss)
   age_s: number;
 }
 
 const formatAge = (s: number) => (s < 60 ? `${s}s` : `${Math.floor(s / 60)}m`);
 
+const STATUS_LABEL: Record<string, string> = {
+  ok: 'IN STOCK',
+  low: 'LOW STOCK',
+  degraded: 'IN STOCK · REDUCED POTENCY',
+  unusable: 'TOO DEGRADED',
+  out: 'OUT OF STOCK',
+};
+
 function ItemStrip({ item }: { item: TriageItem }) {
   const remaining = Math.max(0, 100 - item.potency_loss_pct);
-  const lowStock = item.qty <= 3;
+  const status = item.status ?? (item.qty <= 3 ? 'low' : 'ok');
+  const bad = status === 'out' || status === 'unusable';
   return (
-    <div className="tp-item">
+    <div className={`tp-item ${bad ? 'bad' : ''}`}>
+      <div className="tp-item-check">
+        <span className="tp-item-check-label">Inventory check</span>
+        <span className={`tp-status ${status}`}>{STATUS_LABEL[status]}</span>
+      </div>
       <div className="tp-item-top">
         <span className="tp-item-name">
           <Package size={14} /> {item.name}
         </span>
-        <span className={`tp-qty ${lowStock ? 'low' : ''}`}>
-          {item.qty} left{lowStock ? ' · LOW STOCK' : ''}
+        <span className={`tp-qty ${status === 'low' || bad ? 'low' : ''}`}>
+          {item.qty} {item.unit ?? ''} remaining
         </span>
       </div>
       <div className="tp-item-loc">

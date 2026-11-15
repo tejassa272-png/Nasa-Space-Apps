@@ -9,6 +9,9 @@ Examples
   python3 tempus_simulator.py --tour --watch           # run every anomaly scenario one by one
   python3 tempus_simulator.py --hr 125 --spo2 89 --edema --watch   # custom values
   python3 tempus_simulator.py --scenario full --reset --watch      # clear cached explanations first
+  python3 tempus_simulator.py --scenario bone --watch              # recommends Alendronate from inventory
+  python3 tempus_simulator.py --scenario bone --stock Alendronate=0 --watch     # out-of-stock check
+  python3 tempus_simulator.py --scenario bone --potency Alendronate=60 --watch  # degraded-drug check
 """
 import argparse
 import json
@@ -22,6 +25,7 @@ BASE_URL = "http://localhost:8000"
 HUB_URL = f"{BASE_URL}/api/tempus/vitals"
 STATE_URL = f"{BASE_URL}/api/state"
 RESET_URL = f"{BASE_URL}/api/debug/reset"
+INVENTORY_URL = f"{BASE_URL}/api/debug/inventory"
  
 DEVICE = "Tempus Pro - Lunar Base"
  
@@ -58,6 +62,10 @@ SCENARIOS = {
         "Low oxygen + optic disc edema",
         lambda: dict(heart_rate=_r(72, 90), spo2=_r(88, 93), bp_sys=_r(115, 125), bp_dia=_r(74, 82), us="Optic Disc Edema Detected"),
     ),
+    "bone": (
+        "Bone density loss flagged, vitals normal (recommends Alendronate from inventory)",
+        lambda: dict(heart_rate=_r(62, 78), spo2=_r(97, 100), bp_sys=_r(110, 120), bp_dia=_r(70, 80), us="Clear", bone="Bone Density Loss Detected"),
+    ),
     "full": (
         "Original demo anomaly: tachycardia + hypoxia + high BP + edema",
         lambda: dict(heart_rate=_r(110, 130), spo2=_r(88, 93), bp_sys=_r(140, 160), bp_dia=_r(90, 100), us="Optic Disc Edema Detected"),
@@ -67,7 +75,7 @@ SCENARIOS = {
         lambda: dict(heart_rate=_r(125, 140), spo2=_r(82, 86), bp_sys=_r(150, 170), bp_dia=_r(95, 105), us="Optic Disc Edema Detected"),
     ),
 }
-TOUR_ORDER = ["mild", "hypoxia", "tachycardia", "hypertension", "edema", "hypoxia_edema", "full", "severe"]
+TOUR_ORDER = ["mild", "hypoxia", "tachycardia", "hypertension", "edema", "bone", "hypoxia_edema", "full", "severe"]
  
  
 def to_payload(v):
@@ -77,6 +85,7 @@ def to_payload(v):
         "bp_sys": v["bp_sys"],
         "bp_dia": v["bp_dia"],
         "ultrasound_status": v["us"],
+        "bone_status": v.get("bone", "Normal"),
         "device": DEVICE,
     }
  
@@ -117,6 +126,8 @@ def watch_explanation(timeout_s=150):
     for s in p["steps"]:
         item = f"  [{s['item']['name']}: {s['item']['qty']} left @ {s['item']['location']}]" if s["item"] else ""
         print(f"   Step {s['n']}   : {s['title']}{item}")
+        if s["item"] and s["item"].get("warning"):
+            print(f"             ! {s['item']['warning']}")
     status = p["rationale_status"]
     tag = {"ready": "LOCAL LLM", "fallback": "FALLBACK TEXT (LLM unusable)", "pending": "STILL PENDING (timed out)"}[status]
     print(f"   Why ({tag}, {took:.1f}s):")
@@ -153,6 +164,9 @@ def main():
     ap.add_argument("--sys", type=int, dest="bp_sys", help="custom systolic BP")
     ap.add_argument("--dia", type=int, dest="bp_dia", help="custom diastolic BP")
     ap.add_argument("--edema", action="store_true", help="custom reading includes optic disc edema")
+    ap.add_argument("--bone", action="store_true", help="custom reading includes bone density loss")
+    ap.add_argument("--stock", action="append", metavar="NAME=QTY", help="set inventory quantity first, e.g. --stock Alendronate=0")
+    ap.add_argument("--potency", action="append", metavar="NAME=PCT", help="set potency loss %% first, e.g. --potency Alendronate=60")
     args = ap.parse_args()
  
     if args.list:
@@ -160,7 +174,7 @@ def main():
             print(f"  {name:<14} {desc}")
         return
  
-    custom = any(x is not None for x in (args.hr, args.spo2, args.bp_sys, args.bp_dia)) or args.edema
+    custom = any(x is not None for x in (args.hr, args.spo2, args.bp_sys, args.bp_dia)) or args.edema or args.bone
  
     if not (args.scenario or args.tour or custom):
         run_demo_loop()
@@ -171,6 +185,12 @@ def main():
             requests.post(RESET_URL, timeout=10)
             print("Backend cache cleared.\n")
  
+        for spec, field, cast in [(x, "quantity", int) for x in (args.stock or [])] + \
+                                 [(x, "potency_reduction_pct", float) for x in (args.potency or [])]:
+            name, _, val = spec.partition("=")
+            r = requests.post(INVENTORY_URL, json={"medication": name, field: cast(val)}, timeout=10).json()
+            print(f"Inventory: {r.get('item', r)}")
+
         if custom:
             v = SCENARIOS["nominal"][1]()
             if args.hr is not None: v["heart_rate"] = args.hr
@@ -178,6 +198,7 @@ def main():
             if args.bp_sys is not None: v["bp_sys"] = args.bp_sys
             if args.bp_dia is not None: v["bp_dia"] = args.bp_dia
             if args.edema: v["us"] = "Optic Disc Edema Detected"
+            if args.bone: v["bone"] = "Bone Density Loss Detected"
             send(v, "Custom")
             if args.watch:
                 watch_explanation()

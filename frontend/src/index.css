@@ -29,7 +29,6 @@ body {
  
 #root {
   height: 100%;
-  padding: 1.5rem;
   display: flex;
   flex-direction: column;
 }
@@ -236,7 +235,6 @@ body {
   background: #374151;
 }
  
-/* Sandbox Sliders */
 .sandbox-control {
   margin-bottom: 1.5rem;
 }
@@ -248,7 +246,80 @@ body {
   color: var(--text-secondary);
   margin-bottom: 0.5rem;
 }
- 
+
+.sb-presets { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem; }
+.sb-preset {
+  background: rgba(56, 189, 248, 0.05); 
+  color: var(--text-secondary);
+  border: 1px solid rgba(56, 189, 248, 0.2); 
+  border-radius: 4px;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.sb-preset:hover { 
+  background: rgba(56, 189, 248, 0.15); 
+  color: var(--accent-blue);
+  border-color: rgba(56, 189, 248, 0.5);
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.2);
+}
+
+/* ---- Right-panel tabs ---- */
+.tabs { display: flex; gap: 0.5rem; }
+.tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent; 
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  outline: none; 
+}
+.tab:hover { color: #bae6fd; }
+.tab.active { 
+  color: var(--accent-blue); 
+  border-bottom-color: var(--accent-blue); 
+  background: rgba(56, 189, 248, 0.05); 
+}
+.tab .tab-dot { 
+  display: inline-block; 
+  width: 7px; height: 7px; 
+  border-radius: 50%; 
+  background: var(--status-critical); 
+  margin-left: 0.4rem; 
+  box-shadow: 0 0 5px var(--status-critical); 
+}
+
+/* ---- Sandbox Sliders Customization ---- */
 .sandbox-control input[type=range] {
+  -webkit-appearance: none;
   width: 100%;
-  accent-color: var(--accent-blue
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  outline: none;
+  margin-top: 0.5rem;
+}
+.sandbox-control input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent-blue);
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
+  transition: transform 0.1s;
+}
+.sandbox-control input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.2); }
+.sandbox-control.danger input[type=range]::-webkit-slider-thumb {
+  background: var(--status-critical);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+}

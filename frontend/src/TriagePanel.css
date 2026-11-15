@@ -208,3 +208,28 @@
   padding-bottom: 0.25rem;
 }
 .tp-footer svg { flex: 0 0 auto; margin-top: 1px; }
+
+/* ---- Feature F: inventory check on a step ---- */
+.tp-item.bad { background: rgba(239, 68, 68, 0.08); border-color: rgba(239, 68, 68, 0.45); }
+.tp-item-check {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.45rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.tp-item-check-label { font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-secondary); }
+.tp-status {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid;
+}
+.tp-status.ok       { color: var(--status-nominal);  border-color: rgba(16, 185, 129, 0.5); }
+.tp-status.low,
+.tp-status.degraded { color: var(--status-warning);  border-color: rgba(245, 158, 11, 0.5); }
+.tp-status.unusable,
+.tp-status.out      { color: var(--status-critical); border-color: rgba(239, 68, 68, 0.6); }
