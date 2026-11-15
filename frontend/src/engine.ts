@@ -4,13 +4,15 @@
 export type Status = 'nominal' | 'caution' | 'critical';
 export type SystemId = 'brain' | 'eyes' | 'heart' | 'lungs' | 'immune' | 'bones';
 export interface Inputs { co2: number; radiation: number; days: number; sleep: number }
+interface ModelVitals { hr: number; spo2: number; sys: number; dia: number }
 export interface SystemState {
   id: SystemId;
   label: string;
   risk: number;      // 0..1
   status: Status;
   reason: string;
-  live?: boolean;    // true when a backend flag affects this system
+  live?: boolean;    // true when a backend alert affects this system
+  usesVitals?: boolean;
 }
 
 export const DEFAULT_INPUTS: Inputs = { co2: 1200, radiation: 10, days: 30, sleep: 7.5 };
@@ -28,30 +30,40 @@ const RANK: Record<Status, number> = { nominal: 0, caution: 1, critical: 2 };
 export const worseOf = (a: Status, b: Status): Status => (RANK[a] >= RANK[b] ? a : b);
 
 type Term = [string, number];
-function build(id: SystemId, label: string, terms: Term[]): SystemState {
+function build(id: SystemId, label: string, terms: Term[], usesVitals = false): SystemState {
   const risk = clamp(terms.reduce((s, t) => s + t[1], 0));
   const status = toStatus(risk);
   const top = [...terms]
-    .filter((t) => t[1] > 0.05)
+    .filter((t) => t[1] >= 0.01)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 2)
     .map((t) => t[0]);
-  const reason = status === 'nominal' ? 'Within baseline range.' : `Driven by ${top.join(' + ')}.`;
-  return { id, label, risk, status, reason };
+  const reason = top.length ? `Main modeled factors are ${top.join(' and ')}.` : 'Low modeled contribution from the available inputs.';
+  return { id, label, risk, status, reason, usesVitals };
 }
 
-export function computeSynergy(i: Inputs): Record<SystemId, SystemState> {
+export function computeSynergy(i: Inputs, vitals: ModelVitals | null = null): Record<SystemId, SystemState> {
   const co2 = norm(i.co2, 400, 5000);
   const rad = norm(i.radiation, 0, 100);
   const days = norm(i.days, 0, 900);
   const sleep = norm(8 - i.sleep, 0, 4); // sleep deficit
   const syn = co2 * rad;                 // non-additive interaction term
   const S = 'CO₂ × radiation synergy';
+
+  // These bounded contributions make the illustrative model responsive within the
+  // sensor range. The backend remains the authority for alert thresholds.
+  const pulse = vitals ? 0.18 * Math.max(norm(vitals.hr, 60, 100), norm(60 - vitals.hr, 0, 20)) : 0;
+  const pressure = vitals ? 0.15 * Math.max(
+    norm(vitals.sys, 105, 140), norm(vitals.dia, 65, 90),
+    norm(100 - vitals.sys, 0, 30), norm(60 - vitals.dia, 0, 20),
+  ) : 0;
+  const oxygen = vitals ? 0.30 * norm(100 - vitals.spo2, 0, 10) : 0;
+
   return {
     brain: build('brain', 'Neuro-Cognitive', [['elevated CO₂', 0.35 * co2], ['sleep loss', 0.3 * sleep], ['radiation', 0.15 * rad], [S, 0.6 * syn]]),
     eyes: build('eyes', 'Neuro-Ocular (SANS)', [['mission duration', 0.5 * days], ['elevated CO₂', 0.35 * co2], [S, 0.3 * syn]]),
-    heart: build('heart', 'Cardiovascular', [['radiation', 0.4 * rad], ['mission duration', 0.25 * days], ['sleep loss', 0.2 * sleep], [S, 0.3 * syn]]),
-    lungs: build('lungs', 'Respiratory', [['elevated CO₂', 0.7 * co2], ['radiation', 0.2 * rad], [S, 0.4 * syn]]),
+    heart: build('heart', 'Cardiovascular', [['radiation', 0.4 * rad], ['mission duration', 0.25 * days], ['sleep loss', 0.2 * sleep], [S, 0.3 * syn], ['heart rate', pulse], ['blood pressure', pressure]], vitals !== null),
+    lungs: build('lungs', 'Respiratory', [['elevated CO₂', 0.7 * co2], ['radiation', 0.2 * rad], [S, 0.4 * syn], ['blood oxygen', oxygen]], vitals !== null),
     immune: build('immune', 'Immune', [['radiation', 0.55 * rad], ['sleep loss', 0.2 * sleep], ['mission duration', 0.15 * days], [S, 0.35 * syn]]),
     bones: build('bones', 'Musculoskeletal', [['mission duration', 0.7 * days], ['radiation', 0.15 * rad], ['sleep loss', 0.1 * sleep]]),
   };
@@ -61,11 +73,11 @@ export function computeSynergy(i: Inputs): Record<SystemId, SystemState> {
 // Backend flags raise the matching system to at least the reported protocol severity.
 // ---------------------------------------------------------------------------
 const FLAG_TO_SYSTEM: Record<string, { id: SystemId; reason: string }> = {
-  hypoxia: { id: 'lungs', reason: 'Live Tempus reading: low blood oxygen (SpO₂).' },
-  tachycardia: { id: 'heart', reason: 'Live Tempus reading: fast heart rate.' },
-  hypertension: { id: 'heart', reason: 'Live Tempus reading: high blood pressure.' },
-  edema: { id: 'eyes', reason: 'Live Tempus ultrasound: optic disc edema.' },
-  bone_loss: { id: 'bones', reason: 'Live Tempus scan: bone density loss.' },
+  hypoxia: { id: 'lungs', reason: 'The backend flagged low blood oxygen (SpO₂).' },
+  tachycardia: { id: 'heart', reason: 'The backend flagged a fast heart rate.' },
+  hypertension: { id: 'heart', reason: 'The backend flagged high blood pressure.' },
+  edema: { id: 'eyes', reason: 'The submitted optic ultrasound reported disc edema.' },
+  bone_loss: { id: 'bones', reason: 'The submitted scan reported bone density loss.' },
   hypercapnia: { id: 'lungs', reason: 'The backend flagged elevated cabin CO₂.' },
   radiation_spike: { id: 'immune', reason: 'The backend reported a radiation spike.' },
 };
@@ -91,7 +103,7 @@ export function applyLiveFlags(
 export function readiness(systems: Record<SystemId, SystemState>): number {
   const all = Object.values(systems);
   const avg = all.reduce((s, x) => s + x.risk, 0) / all.length;
-  return Math.round(100 - avg * 100);
+  return (1 - avg) * 100;
 }
 
 // ---------------------------------------------------------------------------

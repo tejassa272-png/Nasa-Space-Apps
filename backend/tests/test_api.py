@@ -12,6 +12,7 @@ from unittest.mock import patch
 import uvicorn
 from sqlalchemy.engine import make_url
 
+from demo_telemetry import DEMO_STREAM_SOURCE
 from main import create_app
 from nasa import NasaReferenceError
 from settings import Settings
@@ -62,6 +63,29 @@ def live_app(settings=DEMO):
 
 
 class DemoApiTests(unittest.TestCase):
+    def test_demo_stream_runs_without_a_browsing_session_and_pauses_for_manual_readings(self):
+        with live_app(replace(DEMO, demo_telemetry=True, stale_seconds=1)) as send:
+            deadline = monotonic() + 4
+            history = []
+            while monotonic() < deadline:
+                history = send("GET", "/api/telemetry")[2]["items"]
+                if len(history) >= 3:
+                    break
+                sleep(0.1)
+            self.assertGreaterEqual(len(history), 3)
+            self.assertTrue(all(row["vitals"]["source"] == DEMO_STREAM_SOURCE for row in history))
+            self.assertTrue(all(row["observed_at"] == row["received_at"] for row in history))
+            self.assertTrue(all(new["observed_at"] - old["observed_at"] >= 0.5 for new, old in zip(history, history[1:])))
+
+            sample = send("POST", "/api/tempus/vitals", VITALS)[2]
+            self.assertEqual(sample["demo_stream"], {
+                "enabled": True, "interval_seconds": 0.5, "resumes_at": sample["telemetry_received_at"] + 30,
+            })
+            sleep(0.7)
+            latest = send("GET", "/api/state")[2]
+            self.assertEqual(latest["vitals"], VITALS)
+            self.assertEqual(latest["telemetry_revision"], sample["telemetry_revision"])
+
     def test_ready_and_validate_payload_without_echoing_input(self):
         with live_app() as send:
             self.assertEqual(send("GET", "/health/live")[2], {"status": "live"})
@@ -145,7 +169,7 @@ class DemoApiTests(unittest.TestCase):
 class ProductionApiTests(unittest.TestCase):
     def test_roles_debug_isolation_and_telemetry_acknowledgement(self):
         keys = {role: token_urlsafe(32) for role in ("viewer", "operator", "telemetry")}
-        settings = replace(DEMO, mode="production", keys=keys, seed_inventory=False)
+        settings = replace(DEMO, mode="production", keys=keys, seed_inventory=False, demo_telemetry=True)
         viewer, operator, telemetry = [keys[role] for role in ("viewer", "operator", "telemetry")]
         with live_app(settings) as send:
             status, headers, _ = send("GET", "/api/state")
@@ -154,6 +178,8 @@ class ProductionApiTests(unittest.TestCase):
             state = send("GET", "/api/state", token=viewer)[2]
             self.assertEqual(state["access"], {"demo": False, "role": "viewer", "can_dispense": False})
             self.assertEqual(state["inventory"], [])
+            self.assertFalse(state["demo_stream"]["enabled"])
+            self.assertIsNone(state["telemetry_revision"])
             self.assertEqual(send("GET", "/api/audit", token=viewer)[0], 403)
             self.assertEqual(send("PUT", "/api/inventory", STOCK, token=viewer)[0], 403)
             self.assertEqual(send("POST", "/api/tempus/vitals", VITALS, token=operator)[0], 403)

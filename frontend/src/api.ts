@@ -61,6 +61,7 @@ export interface VitalsReading {
   ultrasound_status?: string;
   bone_status?: string;
   device?: string;
+  source?: string;
 }
 
 export interface VitalsSample {
@@ -68,6 +69,11 @@ export interface VitalsSample {
   spo2: number;
   sys: number;
   dia: number;
+}
+
+export interface TimedVitalsSample extends VitalsSample {
+  measuredAt: number;
+  device?: string;
 }
 
 export interface ApiSession {
@@ -95,11 +101,13 @@ export interface DashboardState {
   telemetry_received_at?: number | null;
   telemetry_revision?: number | null;
   telemetry_stale?: boolean;
+  environment?: Inputs & { observed_at?: number | null };
+  demo_stream?: { enabled: boolean; interval_seconds: number; resumes_at: number | null };
   access?: Access;
 }
 
 type DispenseResult = { ok: true; item: TriageItem } | { ok: false; error: string; item?: TriageItem };
-type EnvironmentResult = { ok: true; extra_potency_loss_pct: number };
+type EnvironmentResult = { ok: true; extra_potency_loss_pct: number; applied?: boolean };
 type TelemetryPage = {
   items: { id: number; received_at: number; observed_at?: number | null; vitals: VitalsReading }[];
   next_before_id: number | null;
@@ -164,7 +172,13 @@ async function request<T>(
 }
 
 export const api = {
-  getState: (session?: ApiSession | null, signal?: AbortSignal) => request<DashboardState>('state', { session, signal }),
+  async getState(session?: ApiSession | null, signal?: AbortSignal) {
+    const state = await request<DashboardState>('state', { session, signal });
+    if (!state?.vitals || !Array.isArray(state.inventory)) {
+      throw new Error('The server did not return AstroTwin dashboard data. Check the API URL.');
+    }
+    return state;
+  },
 
   getTelemetry: (limit: number, session?: ApiSession | null, signal?: AbortSignal) =>
     request<TelemetryPage>(`telemetry?limit=${limit}`, { session, signal }),
@@ -197,4 +211,9 @@ export function toVitalsSample(vitals: VitalsReading): VitalsSample | null {
   if (typeof hr !== 'number' || typeof spo2 !== 'number' || typeof sys !== 'number' || typeof dia !== 'number') return null;
   if (![hr, spo2, sys, dia].every(Number.isFinite)) return null;
   return { hr, spo2, sys, dia };
+}
+
+export function toTimedVitalsSample(vitals: VitalsReading, measuredAt: number): TimedVitalsSample | null {
+  const sample = toVitalsSample(vitals);
+  return sample && Number.isFinite(measuredAt) ? { ...sample, measuredAt, device: vitals.device } : null;
 }

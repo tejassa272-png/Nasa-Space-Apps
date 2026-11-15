@@ -1,10 +1,14 @@
 # AstroTwin Crew Health Monitoring
 
+Built by Team DevOperations to explore health monitoring during deep-space missions, where communication delays can limit real-time support from Earth.
+
 AstroTwin accepts Tempus and wearable telemetry, tracks environmental alerts, records medical-kit stock changes, and serves the crew dashboard. PostgreSQL stores the current mission state, telemetry history, alert history, inventory, and audit events.
+
+The interactive 3D crew twin lets you inspect modeled risks across six body systems. Use the Simulation Lab presets to preview a radiation storm or cabin scrubber failure, and apply the environment to see the backend assessment in demo mode. NASA lookups provide optional historical context. Telemetry and alert evaluation run locally.
 
 ## Run locally with Docker
 
-For a fresh checkout, start Docker and run:
+For a fresh checkout, start Docker and run the commands below. If you work from a fork, clone your fork's URL instead.
 
 ```sh
 git clone https://github.com/shsumukha381-ui/Nasa-Space-Apps.git
@@ -12,7 +16,11 @@ cd Nasa-Space-Apps
 docker compose up --build --wait
 ```
 
-Open [the dashboard](http://127.0.0.1:5173/) or [the demo API docs](http://127.0.0.1:8000/docs). Demo mode seeds an initial kit and enables simulation controls and debug endpoints. Docker publishes the web and API ports on loopback and keeps PostgreSQL on a private network.
+Open [the dashboard](http://127.0.0.1:5173/) or [the demo API docs](http://127.0.0.1:8000/docs). Docker publishes the web and API ports on loopback and keeps PostgreSQL on a private network.
+
+Demo mode runs a built-in **AstroTwin Simulator**. It sends a sample about every five seconds, even with the browser closed. Heart rate, oxygen saturation, and both blood pressure values are saved in PostgreSQL and plotted by sample time. The dashboard recalculates its modeled risk and readiness from fresh readings and the current environment. Risk and readiness are estimates for the demo and have no clinical validation.
+
+A scenario or another telemetry source takes priority while it is sending readings. The automatic demo stream waits at least 30 seconds after the last submitted sample that updated the dashboard. To use your own stream in demo mode and see missing or stale readings if it stops, set `ASTROTWIN_DEMO_TELEMETRY=false` in `.env` and run `docker compose up -d --build --wait` again. Protected mode never generates readings.
 
 To make changes, create a branch locally with `git switch -c my-changes`. After editing, run `docker compose up --build --wait` again to build and serve your changes. Push your branch with `git push -u origin my-changes` if you have write access to the repository. If you use a fork, push to your fork instead.
 
@@ -36,7 +44,9 @@ $env:ASTROTWIN_API_PORT = "18080"
 docker compose -p astrotwin-local up --build --wait
 ```
 
-For the demo edge simulators, set `ASTROTWIN_API_URL` to the server URL when using an alternate port. Run `python edge_nodes/tempus_simulator.py --scenario hypoxia` to send test telemetry. The frontend also has a Simulation lab.
+The optional edge simulators require Python with `requests` installed. Run `python edge_nodes/tempus_simulator.py` for a continuous demo stream or add `--scenario hypoxia` to send a single scenario. Run `python edge_nodes/smart_watch_edge_node_.py` for a wearable simulation. Use one external source at a time and set `ASTROTWIN_API_URL` to the backend URL if it differs from `http://localhost:8000`. The dashboard also has a Simulation lab.
+
+If you run the frontend through Vite instead of Docker, its proxy defaults to `http://127.0.0.1:8000`. Set `ASTROTWIN_DEV_API_URL` in the shell before starting Vite when the backend uses another address. If Docker already serves the dashboard on port 5173, run `npm --prefix frontend run dev -- --port 5174`.
 
 ## Configure a protected deployment
 
@@ -70,6 +80,8 @@ Operators and viewers enter their respective keys in the dashboard. The browser 
 Send a header of the form `Authorization: Bearer <key>` on protected requests. Telemetry accepts integer `heart_rate`, `spo2`, `bp_sys`, and `bp_dia` values, plus a `device` name. Use `Clear`, `Optic Disc Edema Detected`, or `Not measured` for `ultrasound_status`, and `Normal`, `Bone Density Loss Detected`, or `Not measured` for `bone_status`. A missing scan does not clear a prior scan finding. Environment and telemetry alerts resolve independently as readings change.
 
 Production telemetry and environment requests require `observed_at` as UTC Unix seconds, preferably with fractional seconds. Synchronize device and server clocks. A reading more than five seconds ahead of the server is rejected. Late telemetry is stored in history. Only newer observations update current readings and alerts.
+
+Connect a device or an edge adapter that can submit measured values to keep protected telemetry current. Update frequency depends on the upstream device, including how often it actually measures blood pressure.
 
 ## Verify and maintain
 

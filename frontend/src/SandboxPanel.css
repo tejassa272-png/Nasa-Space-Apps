@@ -66,10 +66,17 @@
   cursor: pointer;
 }
 
-.sb-preset:is(:hover, [aria-pressed='true']) {
+.sb-preset:hover {
   border-color: #438d90;
   background: #182e37;
   color: var(--sb-accent);
+}
+
+.sb-preset[aria-pressed='true'] {
+  border-color: var(--sb-accent);
+  background: var(--sb-accent);
+  color: #082124;
+  box-shadow: 0 0 10px #5ce4db30;
 }
 
 .sb-controls {
@@ -131,36 +138,34 @@
 }
 
 .sb-control input::-webkit-slider-runnable-track {
-  height: 4px;
+  height: 6px;
   border-radius: 5px;
   background: linear-gradient(to right, var(--sb-track-accent) var(--sb-fill), #2b3d4f var(--sb-fill));
 }
 
 .sb-control input::-moz-range-track {
-  height: 4px;
+  height: 6px;
   border-radius: 5px;
   background: linear-gradient(to right, var(--sb-track-accent) var(--sb-fill), #2b3d4f var(--sb-fill));
 }
 
 .sb-control input::-webkit-slider-thumb {
   appearance: none;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   margin-top: -5px;
-  border: 2px solid #111d2a;
+  border: 2px solid var(--sb-track-accent);
   border-radius: 50%;
-  background: var(--sb-track-accent);
-  box-shadow: 0 0 0 1px var(--sb-track-accent);
+  background: #edf5ff;
 }
 
 .sb-control input::-moz-range-thumb {
   box-sizing: border-box;
-  width: 14px;
-  height: 14px;
-  border: 2px solid #111d2a;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--sb-track-accent);
   border-radius: 50%;
-  background: var(--sb-track-accent);
-  box-shadow: 0 0 0 1px var(--sb-track-accent);
+  background: #edf5ff;
 }
 
 @container (max-width: 330px) {

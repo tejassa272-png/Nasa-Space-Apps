@@ -64,8 +64,16 @@ class Access(BaseModel):
     can_dispense: bool
 
 
+class DemoStreamState(BaseModel):
+    enabled: bool
+    interval_seconds: float
+    resumes_at: float | None
+
+
 class DashboardState(BaseModel):
     vitals: dict[str, Any]
+    # Older cached idempotency responses may predate these fields.
+    environment: EnvInputs | None = None
     status: str
     tier: str
     triage_protocol: str
@@ -77,6 +85,7 @@ class DashboardState(BaseModel):
     telemetry_observed_at: float | None
     telemetry_revision: int | None
     telemetry_stale: bool
+    demo_stream: DemoStreamState | None = None
     access: Access
 
 

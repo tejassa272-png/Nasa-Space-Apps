@@ -3,7 +3,9 @@ from time import time
 from auth import Principal
 from settings import Settings
 from storage import MedicalInventory, Transaction
-from triage import protocol_as_text
+from triage import assess_telemetry, protocol_as_text
+
+DEMO_STREAM_SOURCE = "demo_stream"
 
 UNITS = {
     "b-vitamin": "doses", "alendronate": "pills", "o2": "tanks",
@@ -82,6 +84,27 @@ def update_alert(tx: Transaction, source: str, candidate: dict | None, actor: st
     setattr(tx.state, field, updated)
 
 
+def record_vitals(tx: Transaction, reading: dict, actor: str, *, received_at: float, observed_at: float) -> tuple[int, bool]:
+    previous_time = tx.state.vitals.get("observed_at", tx.state.last_telemetry_at)
+    applied = previous_time is None or observed_at > previous_time
+    reading_id = tx.record_telemetry(reading, actor, received_at=received_at, apply=applied)
+    if applied:
+        evidence, retained = assessment_evidence(reading, tx.state.telemetry_protocol)
+        candidate = assess_telemetry(evidence, present_inventory(tx))
+        if retained and candidate:
+            candidate["retained_flags"] = retained
+            candidate["rationale"] += " A prior scan finding is still active because this sample did not include that scan."
+        update_alert(tx, "telemetry", candidate, actor)
+    return reading_id, applied
+
+
+def demo_stream_resume_at(tx: Transaction, settings: Settings) -> float | None:
+    last_received = tx.state.last_telemetry_at
+    if not settings.demo_stream_enabled or last_received is None or tx.state.vitals.get("source") == DEMO_STREAM_SOURCE:
+        return None
+    return last_received + max(30, settings.stale_seconds)
+
+
 def dashboard(tx: Transaction, settings: Settings, principal: Principal) -> dict:
     state = tx.state
     now = time()
@@ -96,6 +119,7 @@ def dashboard(tx: Transaction, settings: Settings, principal: Principal) -> dict
     received_at = state.last_telemetry_at
     observed_at = state.vitals.get("observed_at", received_at)
     stale = observed_at is not None and now - observed_at > settings.stale_seconds
+    resumes_at = demo_stream_resume_at(tx, settings)
 
     if alerts:
         status = "Environmental Hazard Detected" if alerts[0]["kind"] == "environment" else "Anomaly Detected"
@@ -109,10 +133,15 @@ def dashboard(tx: Transaction, settings: Settings, principal: Principal) -> dict
         status, tier, summary = "Waiting for telemetry...", "Standby", "System standing by..."
 
     return {
-        "vitals": state.vitals, "status": status, "tier": tier, "triage_protocol": summary,
+        "vitals": state.vitals, "environment": state.environment, "status": status, "tier": tier, "triage_protocol": summary,
         "is_critical": bool(alerts), "protocol": protocol, "active_protocols": alerts,
         "inventory": present_inventory(tx), "telemetry_received_at": received_at,
         "telemetry_observed_at": observed_at, "telemetry_revision": tx.latest_telemetry_id(),
         "telemetry_stale": stale,
+        "demo_stream": {
+            "enabled": settings.demo_stream_enabled,
+            "interval_seconds": settings.demo_sample_seconds,
+            "resumes_at": resumes_at if resumes_at is not None and resumes_at > now else None,
+        },
         "access": {"demo": settings.demo, "role": principal.role, "can_dispense": principal.can_dispense},
     }

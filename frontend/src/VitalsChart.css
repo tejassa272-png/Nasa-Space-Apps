@@ -90,7 +90,7 @@
   vector-effect: non-scaling-stroke;
 }
 
-.vt-area { fill: rgb(92 228 219 / 8%); }
+.vt-history-warning { margin-bottom: .65rem; color: #ebc49e; font-size: .75rem; }
 
 .vt-line {
   fill: none;

@@ -173,7 +173,8 @@
 }
 
 .bt-system > svg { flex: none; }
-.bt-system > span:not(.bt-system-dot) { overflow-wrap: anywhere; }
+.bt-system-info { display: grid; gap: 2px; overflow-wrap: anywhere; }
+.bt-system-info small { color: var(--bt-muted); font-size: .67rem; font-variant-numeric: tabular-nums; }
 
 .bt-system:hover,
 .bt-system[aria-pressed='true'] {

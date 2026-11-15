@@ -238,17 +238,18 @@ export default function BioTwin({ systems, selected, onSelect, tint }: Props) {
         {Object.values(systems).map((system) => {
           const { icon: Icon, label } = HOTSPOTS[system.id];
           const color = STATUS_COLOR[system.status];
+          const risk = Math.round(system.risk * 100);
           return (
             <button
               key={system.id}
               type="button"
               className="bt-system"
-              aria-label={`${system.label}, ${system.status}`}
+              aria-label={`${system.label}, ${system.status}, ${risk}% modeled risk`}
               aria-pressed={selected === system.id}
               onClick={() => onSelect(system.id)}
             >
               <Icon size={15} aria-hidden="true" />
-              <span>{label}</span>
+              <span className="bt-system-info"><span>{label}</span><small>{risk}% risk</small></span>
               <span className="bt-system-dot" style={{ background: color }} aria-hidden="true" />
             </button>
           );

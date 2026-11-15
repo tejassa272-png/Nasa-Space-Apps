@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 const proxy = {
-  '/api': 'http://127.0.0.1:8000',
+  '/api': process.env.ASTROTWIN_DEV_API_URL?.trim() || 'http://127.0.0.1:8000',
 }
 
 export default defineConfig({

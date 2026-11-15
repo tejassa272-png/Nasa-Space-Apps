@@ -278,6 +278,20 @@ button:focus-visible, a:focus-visible, input:focus-visible, [tabindex="0"]:focus
 .offline-banner > div { display: flex; align-items: center; gap: 9px; }
 .offline-banner svg { flex-shrink: 0; }
 
+.telemetry-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-bottom: 9px;
+  color: var(--text-secondary);
+  font-size: .75rem;
+  line-height: 1.4;
+}
+.telemetry-source strong { color: var(--text-primary); }
+.telemetry-source svg { flex: none; color: var(--accent-cyan); }
+.telemetry-source time { font-variant-numeric: tabular-nums; }
+
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

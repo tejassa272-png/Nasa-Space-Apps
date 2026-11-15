@@ -1,73 +1,64 @@
-"""
-AstroTwin Hub-and-Spoke Edge Node Simulator
-Represents a low-power, GPU-less wearable biomonitor running quantized TinyML.
-"""
-import os
-import time
-import random
+"""Send a continuous synthetic wearable stream to an AstroTwin demo server."""
+
+import sys
+from random import randint
+from time import monotonic, sleep
+
 import requests
 
-BASE_URL = os.getenv("ASTROTWIN_API_URL", "http://localhost:8000").rstrip("/")
-HUB_URL = f"{BASE_URL}/api/tempus/vitals"
-DEVICE = "Astro-Watch Series 1 (Edge Node)"
+if __package__:
+    from .edge_telemetry import TelemetryClient, TelemetryDeliveryError, receipt_label
+else:
+    from edge_telemetry import TelemetryClient, TelemetryDeliveryError, receipt_label
 
-def generate_vitals(anomaly=False):
-    if anomaly:
-        return {
-            "heart_rate": random.randint(105, 120),  # HR > 100
-            "spo2": random.randint(88, 94),          # SpO2 < 95
-            "bp_sys": random.randint(120, 135),
-            "bp_dia": random.randint(80, 90),
-            "ultrasound_status": "Not measured",
-            "bone_status": "Not measured",
-            "device": DEVICE
-        }
-    else:
-        return {
-            "heart_rate": random.randint(60, 80),
-            "spo2": random.randint(97, 100),
-            "bp_sys": random.randint(110, 120),
-            "bp_dia": random.randint(70, 80),
-            "ultrasound_status": "Not measured",
-            "bone_status": "Not measured",
-            "device": DEVICE
-        }
 
-def main():
-    print(f"[{DEVICE}] Booting...")
-    print("[EDGE NODE] Running local quantized anomaly detection.")
-    print("[EDGE NODE] Network radio is SLEEPING to conserve battery.")
-    print("Press Ctrl+C to stop.\n")
-    
-    tick = 0
+DEVICE = "Astro-Watch · simulation"
+INTERVAL_SECONDS = 2.5
+
+
+def generate_vitals(anomaly: bool = False) -> dict:
+    return {
+        "heart_rate": randint(105, 119) if anomaly else randint(60, 80),
+        "spo2": randint(90, 94) if anomaly else randint(97, 100),
+        "bp_sys": randint(120, 135) if anomaly else randint(110, 120),
+        "bp_dia": randint(80, 89) if anomaly else randint(70, 80),
+        "ultrasound_status": "Not measured",
+        "bone_status": "Not measured",
+        "device": DEVICE,
+    }
+
+
+def main() -> int:
+    print(f"[{DEVICE}] Sending synthetic readings every {INTERVAL_SECONDS:g}s (Ctrl+C to stop).", flush=True)
     try:
-        while True:
-            # For the hackathon pitch, automatically trigger the anomaly on the 5th tick
-            is_anomaly = (tick == 4)
-            vitals = generate_vitals(anomaly=is_anomaly)
-            
-            # --- Feature G: The Edge Logic Gate ---
-            # The simulated wearable sends only threshold breaches to the hub.
-            if vitals["heart_rate"] > 100 and vitals["spo2"] < 95:
-                print(f"\n[EDGE AI ALERT] Critical threshold breached! (HR: {vitals['heart_rate']}, SpO2: {vitals['spo2']}%)")
-                print("--> Waking up network radio...")
-                print("--> Transmitting JSON payload to AstroTwin...")
-                
+        with requests.Session() as session:
+            session.trust_env = False  # Demo simulation never uses credentials from netrc.
+            client = TelemetryClient(session)
+            client.require_demo()
+            tick = 0
+            while True:
+                started = monotonic()
+                reading = generate_vitals(anomaly=tick == 4)
                 try:
-                    res = requests.post(HUB_URL, json=vitals, timeout=5)
-                    res.raise_for_status()
-                    print("--> Transmission successful. Hub recorded the reading.")
-                except requests.exceptions.ConnectionError:
-                    print("--> ERROR: Spacecraft Hub server is unreachable.")
-            else:
-                # Nominal state: Processed locally, bandwidth and power saved.
-                print(f"[Local Log] HR: {vitals['heart_rate']} | SpO2: {vitals['spo2']}% | Status: Nominal (Radio OFF)")
-            
-            tick = (tick + 1) % 10
-            time.sleep(2.5)
-            
+                    state = client.send(reading)
+                    print(
+                        f"HR {reading['heart_rate']} | SpO2 {reading['spo2']}% | "
+                        f"BP {reading['bp_sys']}/{reading['bp_dia']} -> {receipt_label(state)}",
+                        flush=True,
+                    )
+                except TelemetryDeliveryError as error:
+                    if not error.retryable:
+                        raise
+                    print(f"{error} Reading not confirmed after retries. The stream will continue.", file=sys.stderr)
+                tick = (tick + 1) % 10
+                sleep(max(0, INTERVAL_SECONDS - (monotonic() - started)))
+    except TelemetryDeliveryError as error:
+        print(error, file=sys.stderr)
+        return 1
     except KeyboardInterrupt:
-        print(f"\n[{DEVICE}] Shutting down.")
+        print(f"\n[{DEVICE}] Stopped.")
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -58,7 +58,8 @@ export default function SystemPanel({
           <strong>{risk}%</strong>
         </div>
         <progress aria-label="Modeled risk" value={risk} max={100}>{risk}%</progress>
-        {system.live && <p className="sp-live"><Radio size={13} aria-hidden="true" /> Includes a telemetry flag</p>}
+        {system.live && <p className="sp-live"><Radio size={13} aria-hidden="true" /> Includes a backend alert</p>}
+        {system.usesVitals && <p className="sp-live">Includes reported vital signs</p>}
       </div>
 
       <details className="sp-detail">

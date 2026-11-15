@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, ApiError, getErrorMessage, toVitalsSample, type ApiSession, type DashboardState, type VitalsSample } from './api';
+import { api, ApiError, getErrorMessage, toTimedVitalsSample, type ApiSession, type DashboardState, type TimedVitalsSample } from './api';
 
 type Connection = 'loading' | 'online' | 'offline';
 
@@ -7,17 +7,21 @@ interface MissionState {
   data: DashboardState | null;
   connection: Connection;
   checkedAt: number | null;
-  history: VitalsSample[];
+  history: TimedVitalsSample[];
+  historyUnavailable: boolean;
 }
 
 const HISTORY_LIMIT = 40;
-const EMPTY_MISSION: MissionState = { data: null, connection: 'loading', checkedAt: null, history: [] };
+const EMPTY_MISSION: MissionState = { data: null, connection: 'loading', checkedAt: null, history: [], historyUnavailable: false };
 
-function appendReading(history: VitalsSample[], sample: VitalsSample | null) {
+function appendReading(history: TimedVitalsSample[], sample: TimedVitalsSample | null, hasTimestamp: boolean) {
   if (!sample) return history;
   const last = history.at(-1);
-  if (last && last.hr === sample.hr && last.spo2 === sample.spo2 && last.sys === sample.sys && last.dia === sample.dia) {
-    return history;
+  if (last) {
+    if (hasTimestamp && sample.measuredAt <= last.measuredAt) return history;
+    if (!hasTimestamp && last.hr === sample.hr && last.spo2 === sample.spo2 && last.sys === sample.sys && last.dia === sample.dia && last.device === sample.device) {
+      return history;
+    }
   }
   return [...history, sample].slice(-HISTORY_LIMIT);
 }
@@ -62,7 +66,32 @@ export function useMissionState() {
     if (requiresAuth && !session) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
+    let historyPending = false;
     const aborted = () => controller.signal.aborted || session?.signal.aborted;
+
+    async function syncHistory(revision: number | null) {
+      historyPending = true;
+      try {
+        const page = await api.getTelemetry(HISTORY_LIMIT, session, controller.signal);
+        if (aborted()) return;
+        const history = [...page.items]
+          .sort((a, b) => (a.observed_at ?? a.received_at) - (b.observed_at ?? b.received_at) || a.id - b.id)
+          .map(({ vitals, observed_at, received_at }) => toTimedVitalsSample(vitals, observed_at ?? received_at))
+          .filter((sample): sample is TimedVitalsSample => sample !== null);
+        historyRevision.current = revision;
+        setMission((previous) => ({ ...previous, history, historyUnavailable: false }));
+      } catch (error) {
+        if (aborted()) return;
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+          requireAuth('Access expired. Enter a valid viewer or operator key.');
+          return;
+        }
+        if (error instanceof ApiError && error.status === 404) legacyHistory.current = true;
+        setMission((previous) => previous.historyUnavailable ? previous : { ...previous, historyUnavailable: true });
+      } finally {
+        historyPending = false;
+      }
+    }
 
     async function poll() {
       let delay = 1000;
@@ -72,33 +101,21 @@ export function useMissionState() {
         const revision = data.telemetry_revision ?? data.telemetry_received_at;
         const durableHistory = revision !== undefined && !legacyHistory.current;
         const checkedAt = Date.now();
+        const measuredAt = data.telemetry_observed_at ?? data.telemetry_received_at;
         setMission((previous) => ({
+          ...previous,
           data,
           connection: 'online',
           checkedAt,
-          history: durableHistory ? previous.history : appendReading(previous.history, toVitalsSample(data.vitals)),
+          history: durableHistory ? previous.history : appendReading(
+            previous.history,
+            toTimedVitalsSample(data.vitals, measuredAt ?? checkedAt / 1000),
+            measuredAt != null,
+          ),
         }));
         if (requiresAuth) setRequiresAuth(false);
 
-        if (durableHistory && historyRevision.current !== revision) {
-          try {
-            const page = await api.getTelemetry(HISTORY_LIMIT, session, controller.signal);
-            if (aborted()) return;
-            const history = [...page.items]
-              .sort((a, b) => (a.observed_at ?? a.received_at) - (b.observed_at ?? b.received_at) || a.id - b.id)
-              .map(({ vitals }) => toVitalsSample(vitals))
-              .filter((sample): sample is VitalsSample => sample !== null);
-            historyRevision.current = revision;
-            setMission((previous) => ({ ...previous, history }));
-          } catch (error) {
-            if (aborted()) return;
-            if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
-              requireAuth('Access expired. Enter a valid viewer or operator key.');
-              return;
-            }
-            if (error instanceof ApiError && error.status === 404) legacyHistory.current = true;
-          }
-        }
+        if (durableHistory && historyRevision.current !== revision && !historyPending) void syncHistory(revision);
       } catch (error) {
         if (aborted()) return;
         if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {

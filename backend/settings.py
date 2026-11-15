@@ -72,10 +72,19 @@ class Settings:
     keys: dict[Role, str]
     nasa_api_key: str | None
     stale_seconds: int
+    demo_telemetry: bool = False
 
     @property
     def demo(self) -> bool:
         return self.mode == "demo"
+
+    @property
+    def demo_stream_enabled(self) -> bool:
+        return self.demo and self.demo_telemetry
+
+    @property
+    def demo_sample_seconds(self) -> float:
+        return min(5.0, self.stale_seconds / 2)
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -107,4 +116,5 @@ class Settings:
             mode, database_url(mode), flag("ASTROTWIN_SEED_INVENTORY", mode == "demo"),
             origins or (DEMO_ORIGINS if mode == "demo" else ()), keys,
             read_secret("ASTROTWIN_NASA_API_KEY") or None, stale_seconds,
+            demo_telemetry=mode == "demo" and flag("ASTROTWIN_DEMO_TELEMETRY", True),
         )

@@ -9,7 +9,7 @@ import InventoryPanel from './InventoryPanel';
 import SandboxPanel from './SandboxPanel';
 import SystemPanel from './SystemPanel';
 import DemoMenu from './DemoMenu';
-import { api, ApiError, getErrorMessage, type Protocol, type TriageItem } from './api';
+import { api, ApiError, getErrorMessage, toVitalsSample, type Protocol, type TriageItem } from './api';
 import {
   DEFAULT_INPUTS, applyLiveFlags, computeSynergy, readiness, worseOf,
   type Inputs, type Status, type SystemId,
@@ -33,6 +33,10 @@ const checkedTime = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute
 const receivedTime = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 const EMPTY_INVENTORY: TriageItem[] = [];
 const EMPTY_PROTOCOLS: Protocol[] = [];
+
+function sameInputs(a: Inputs, b: Inputs) {
+  return a.co2 === b.co2 && a.radiation === b.radiation && a.days === b.days && a.sleep === b.sleep;
+}
 
 function subscribeToHash(callback: () => void) {
   window.addEventListener('hashchange', callback);
@@ -106,7 +110,7 @@ function App() {
 
 function Dashboard({ mission }: { mission: ReturnType<typeof useMissionState> }) {
   const { data, checkedAt, connection, history, refresh, session, signOut, handleUnauthorized } = mission;
-  const [inputs, setInputs] = useState<Inputs>(DEFAULT_INPUTS);
+  const [scenarioInputs, setScenarioInputs] = useState<Inputs | null>(null);
   const [selected, setSelected] = useState<SystemId | null>(null);
   const [tabChoice, setTabChoice] = useState<{ tab: ResponseTab; alertId: number | null } | null>(null);
   const section = useSyncExternalStore(subscribeToHash, readSection);
@@ -133,27 +137,48 @@ function Dashboard({ mission }: { mission: ReturnType<typeof useMissionState> })
   const demoMode = data !== null && (data.access?.demo ?? true);
   const canDispense = data?.access?.can_dispense ?? demoMode;
   const canCheckNasa = demoMode || data?.access?.role === 'operator';
-  const staleAt = data?.telemetry_stale === true ? data.telemetry_observed_at ?? data.telemetry_received_at ?? null : null;
+  const vitals = data?.vitals;
+  const sample = useMemo(() => vitals ? toVitalsSample(vitals) : null, [vitals]);
+  const sampleAt = data?.telemetry_observed_at ?? data?.telemetry_received_at ?? null;
+  const sampleTime = sample && sampleAt !== null ? new Date(sampleAt * 1000) : null;
+  const stale = data?.telemetry_stale === true;
+  const isLastSample = stale || !connected;
+  const isAutomaticDemo = vitals?.source === 'demo_stream';
+  const isSimulated = isAutomaticDemo || vitals?.device?.endsWith('· simulation') === true;
+  const demoStream = data?.demo_stream;
+  const pausedUntil = demoStream?.resumes_at;
+  const demoPaused = connected && pausedUntil != null && checkedAt !== null && checkedAt < pausedUntil * 1000;
+  const storedEnvironment = data?.environment;
+  const environment = useMemo(() => {
+    if (!storedEnvironment) return DEFAULT_INPUTS;
+    const { co2, radiation, days, sleep } = storedEnvironment;
+    return { co2, radiation, days, sleep };
+  }, [storedEnvironment]);
+  const inputs = scenarioInputs ?? environment;
+  const preview = !sameInputs(inputs, environment);
   const alertId = isCritical ? primaryProtocol?.id ?? 0 : null;
   const tab = tabChoice?.alertId === alertId ? tabChoice.tab : 'triage';
   const systems = useMemo(
     () => activeProtocols.reduceRight(
       (state, alert) => applyLiveFlags(state, alert.flags, alert.severity),
-      computeSynergy(inputs),
+      computeSynergy(inputs, sample),
     ),
-    [inputs, activeProtocols],
+    [inputs, sample, activeProtocols],
   );
   const list = Object.values(systems);
   const worst = list.reduce((highest, system) => system.risk > highest.risk ? system : highest);
   const activeSystem = systems[selected ?? worst.id];
   const overall = list.reduce<Status>((previous, system) => worseOf(previous, system.status), 'nominal');
   const readinessScore = readiness(systems);
-  const flagsUsed = list.some((system) => system.live);
   const inUse = new Set(activeProtocols.flatMap(({ steps }) => steps.flatMap((step) => step.item ? [step.item.name] : [])));
-  const vitals = data?.vitals;
-  const streamDetail = typeof vitals?.heart_rate !== 'number'
-    ? 'Awaiting telemetry'
-    : staleAt !== null || !connected ? 'Last received reading' : 'Latest reading';
+  const streamDetail = sample ? (isLastSample ? 'Last received sample' : 'Latest sample') : 'Awaiting telemetry';
+  const readinessDetail = sample
+    ? `Model using ${isLastSample ? 'last received' : isSimulated ? 'simulated' : 'current'} vitals${preview ? ' and a sandbox preview' : ''}`
+    : 'Awaiting telemetry';
+  const telemetrySource = sample
+    ? (isSimulated ? 'Simulated telemetry' : 'Device telemetry')
+    : (demoStream?.enabled ? 'Waiting for simulated telemetry' : 'Waiting for a telemetry source');
+  const modelConditions = preview ? 'sandbox preview' : storedEnvironment?.observed_at != null ? 'reported environment' : 'default environment';
   const simulationLocked = simulationBusy || applying || dispensePending;
 
   function changeTab(next: ResponseTab) {
@@ -212,11 +237,9 @@ function Dashboard({ mission }: { mission: ReturnType<typeof useMissionState> })
     setEnvironmentResult(null);
     try {
       const result = await api.setEnvironment(inputs);
-      setEnvironmentResult({
-        inputs,
-        tone: 'success',
-        text: `Inputs applied. The API reports ${result.extra_potency_loss_pct}% additional potency loss for pills and doses.`,
-      });
+      setEnvironmentResult(result.applied === false
+        ? { inputs, tone: 'error', text: 'The backend kept a newer environment reading. Try applying these values again shortly.' }
+        : { inputs, tone: 'success', text: `Inputs applied. The API reports ${result.extra_potency_loss_pct}% additional potency loss for pills and doses.` });
     } catch (error) {
       setEnvironmentResult({ inputs, tone: 'error', text: getErrorMessage(error) });
     } finally {
@@ -225,17 +248,12 @@ function Dashboard({ mission }: { mission: ReturnType<typeof useMissionState> })
     }
   }
 
-  const changeInputs = (next: Inputs) => {
-    setInputs(next);
+  const changeInputs = (next: Inputs | null) => {
+    setScenarioInputs(next);
     setEnvironmentResult(null);
   };
 
   const alertTone = isCritical ? (primaryProtocol?.severity === 'CRITICAL' ? 'critical' : 'warning') : 'neutral';
-  const device = vitals?.device ?? 'Tempus Pro';
-  const bloodPressure = typeof vitals?.bp_sys === 'number' && typeof vitals.bp_dia === 'number'
-    ? `${vitals.bp_sys}/${vitals.bp_dia}`
-    : '—';
-
   return (
     <div className="app-shell">
       <a className="skip-link" href="#overview">Skip to mission overview</a>
@@ -297,24 +315,32 @@ function Dashboard({ mission }: { mission: ReturnType<typeof useMissionState> })
             </div>
           )}
 
-          {staleAt !== null && connected && (
+          {stale && connected && (
             <div className="offline-banner" role="status">
-              <div><Signal size={17} aria-hidden="true" /><p><strong>Telemetry is stale.</strong> Latest measurement from {receivedTime.format(staleAt * 1000)}.</p></div>
+              <div><Signal size={17} aria-hidden="true" /><p><strong>Telemetry is stale.</strong> {sampleTime ? `Latest sample from ${receivedTime.format(sampleTime)}.` : 'Waiting for a fresh sample.'}</p></div>
             </div>
           )}
 
+          <div className="telemetry-source" aria-label="Telemetry source">
+            <Radio size={15} aria-hidden="true" />
+            <strong>{telemetrySource}</strong>
+            {sample && vitals?.device && <span>{vitals.device}</span>}
+            {sampleTime && <time dateTime={sampleTime.toISOString()} title={receivedTime.format(sampleTime)}>{streamDetail} at {checkedTime.format(sampleTime)}</time>}
+            {demoPaused && <span>Automatic demo feed paused after a submitted sample</span>}
+            {isAutomaticDemo && connected && !stale && !demoPaused && demoStream?.enabled && <span>New sample every {demoStream.interval_seconds} s</span>}
+          </div>
           <section className="metrics-grid" aria-label="Crew health indicators">
-            <Metric label="Heart rate" value={vitals?.heart_rate === '--' ? '—' : vitals?.heart_rate ?? '—'} unit="bpm" tone="pink" icon={<HeartPulse size={17} />} detail={streamDetail} />
-            <Metric label="Blood oxygen" value={vitals?.spo2 === '--' ? '—' : vitals?.spo2 ?? '—'} unit="%" tone="cyan" icon={<Wind size={17} />} detail={streamDetail} />
-            <Metric label="Blood pressure" value={bloodPressure} unit="mmHg" tone="blue" icon={<Activity size={17} />} detail={streamDetail} />
+            <Metric label="Heart rate" value={sample?.hr ?? '—'} unit="bpm" tone="pink" icon={<HeartPulse size={17} />} detail={streamDetail} />
+            <Metric label="Blood oxygen" value={sample?.spo2 ?? '—'} unit="%" tone="cyan" icon={<Wind size={17} />} detail={streamDetail} />
+            <Metric label="Blood pressure" value={sample ? `${sample.sys}/${sample.dia}` : '—'} unit="mmHg" tone="blue" icon={<Activity size={17} />} detail={streamDetail} />
             <Metric
               label="Mission readiness"
-              value={readinessScore}
+              value={sample ? readinessScore.toFixed(1) : '—'}
               unit="/ 100"
               tone="green"
               icon={<Crosshair size={17} />}
-              detail={flagsUsed ? 'Sandbox model with API flags' : 'Sandbox model score'}
-              graphic={
+              detail={readinessDetail}
+              graphic={sample &&
                 <svg className="metric-ring" viewBox="0 0 46 46" aria-hidden="true">
                   <circle cx="23" cy="23" r="18" />
                   <circle className="metric-ring-value" cx="23" cy="23" r="18" transform="rotate(-90 23 23)" strokeDasharray={RING_CIRCUMFERENCE} strokeDashoffset={RING_CIRCUMFERENCE * (1 - readinessScore / 100)} />
@@ -328,7 +354,7 @@ function Dashboard({ mission }: { mission: ReturnType<typeof useMissionState> })
               <div className="card-heading">
                 <div className="card-heading-main">
                   <span className="card-icon"><Orbit size={19} aria-hidden="true" /></span>
-                  <div><h2 id="twin-title">Crew digital twin</h2><p>Explore the modeled state of six body systems.</p></div>
+                  <div><h2 id="twin-title">Crew digital twin</h2><p>Illustrative risk model · {modelConditions}{sample ? ` and ${isLastSample ? 'last reported' : 'latest'} vitals` : ''}</p></div>
                 </div>
                 <span className={`state-tag state-${overall}`}>{overall === 'nominal' ? 'Nominal model' : overall === 'caution' ? 'Model caution' : 'Critical model'}</span>
               </div>
@@ -397,10 +423,10 @@ function Dashboard({ mission }: { mission: ReturnType<typeof useMissionState> })
               <div className="card-heading">
                 <div className="card-heading-main">
                   <span className="card-icon"><Activity size={19} aria-hidden="true" /></span>
-                  <div><h2 id="trends-title">Telemetry trends</h2><p>{device}</p></div>
+                  <div><h2 id="trends-title">Telemetry trends</h2><p>Recorded samples from the backend</p></div>
                 </div>
               </div>
-              <VitalsChart history={history} />
+              <VitalsChart history={history} historyUnavailable={mission.historyUnavailable} />
             </section>
 
             <div className="inventory-anchor" id="medical-kit">
@@ -417,13 +443,14 @@ function Dashboard({ mission }: { mission: ReturnType<typeof useMissionState> })
             <div className="workspace-grid">
               <div className="environment-group">
                 <SandboxPanel inputs={inputs} onChange={changeInputs} />
-                {demoMode && (
+                {(demoMode || preview) && (
                   <div className="environment-actions">
-                    <p>Apply these values to update the backend’s environmental assessment and inventory potency.</p>
-                    <button type="button" className="button button-secondary" disabled={!connected || simulationLocked} onClick={applyEnvironment}>
+                    <p>{demoMode ? 'Apply these values to update the backend’s environmental assessment and inventory potency.' : 'This preview uses your local sandbox values.'}</p>
+                    {preview && <button type="button" className="button button-secondary" onClick={() => changeInputs(null)}>Reset preview</button>}
+                    {demoMode && <button type="button" className="button button-secondary" disabled={!connected || simulationLocked} onClick={applyEnvironment}>
                       <Signal size={15} aria-hidden="true" /> {applying ? 'Applying inputs…' : 'Apply to backend'}
-                    </button>
-                    {environmentResult?.inputs === inputs && <p className={`environment-result result-${environmentResult.tone}`} role={environmentResult.tone === 'error' ? 'alert' : 'status'}>{environmentResult.text}</p>}
+                    </button>}
+                    {environmentResult && sameInputs(environmentResult.inputs, inputs) && <p className={`environment-result result-${environmentResult.tone}`} role={environmentResult.tone === 'error' ? 'alert' : 'status'}>{environmentResult.text}</p>}
                   </div>
                 )}
               </div>

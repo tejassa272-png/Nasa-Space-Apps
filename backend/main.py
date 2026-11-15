@@ -1,5 +1,6 @@
 import hashlib
 import logging
+from asyncio import Event, create_task
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from time import time
@@ -15,7 +16,8 @@ from starlette.concurrency import run_in_threadpool
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from auth import Principal, allow, digest
-from monitoring import assessment_evidence, dashboard, extra_potency_loss, present_inventory, present_item, update_alert
+from demo_telemetry import run_demo_stream
+from monitoring import dashboard, extra_potency_loss, present_inventory, present_item, record_vitals, update_alert
 from nasa import NasaReferenceError, fetch_nasa_reference
 from schemas import (
     DashboardState, Dispense, EnvInputs, InventoryRecord, InventoryUpdate, NasaSyncToggle,
@@ -23,7 +25,7 @@ from schemas import (
 )
 from settings import Settings
 from storage import IdempotencyConflict, InventoryMatchConflict, InventoryOutOfStock, Storage
-from triage import assess_environment, assess_telemetry
+from triage import assess_environment
 
 logger = logging.getLogger("uvicorn.error")
 Reader = Annotated[Principal, Depends(allow("operator", "viewer"))]
@@ -100,7 +102,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.store = store
         try:
             await run_in_threadpool(store.initialize, settings.seed_inventory)
-            yield
+            stopped = Event()
+            demo_stream = create_task(run_demo_stream(store, settings, stopped)) if settings.demo_stream_enabled else None
+            try:
+                yield
+            finally:
+                if demo_stream is not None:
+                    stopped.set()
+                    await demo_stream
         finally:
             await run_in_threadpool(store.dispose)
 
@@ -180,7 +189,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with store.read() as tx:
             return page_for(tx.audit_history, limit, before_id)
 
-    @app.post("/api/tempus/vitals", response_model=DashboardState | TelemetryReceipt)
+    @app.post("/api/tempus/vitals", response_model=DashboardState | TelemetryReceipt, response_model_exclude_unset=True)
     def ingest_vitals(vitals: TempusTelemetry, principal: Telemetry, key: IdempotencyKey = None, store: Storage = Depends(get_store)):
         received_at = time()
         observed_at = observation_time(settings, vitals.observed_at, received_at)
@@ -190,18 +199,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             cached = tx.get_idempotent_result("telemetry", principal.role, key, fingerprint) if key else None
             if cached is not None:
                 return cached
-            previous_time = tx.state.vitals.get("observed_at", tx.state.last_telemetry_at)
-            apply = previous_time is None or observed_at > previous_time
-            reading_id = tx.record_telemetry(reading, principal.role, received_at=received_at, apply=apply)
-            if apply:
-                evidence, retained = assessment_evidence(reading, tx.state.telemetry_protocol)
-                candidate = assess_telemetry(evidence, present_inventory(tx))
-                if retained and candidate:
-                    candidate["retained_flags"] = retained
-                    candidate["rationale"] += " A prior scan finding is still active because this sample did not include that scan."
-                update_alert(tx, "telemetry", candidate, principal.role)
+            reading_id, applied = record_vitals(tx, reading, principal.role, received_at=received_at, observed_at=observed_at)
             result = dashboard(tx, settings, principal) if settings.demo else {
-                "ok": True, "telemetry_id": reading_id, "received_at": received_at, "applied": apply,
+                "ok": True, "telemetry_id": reading_id, "received_at": received_at, "applied": applied,
             }
             if key:
                 tx.save_idempotent_result("telemetry", principal.role, key, fingerprint, result)
